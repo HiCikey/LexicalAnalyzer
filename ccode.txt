@@ -1,0 +1,413 @@
+#define _CRT_SECURE_NO_WARNINGS
+
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+
+char a='\nn';
+
+typedef struct Hfmnode {
+	int parent, lchild, rchild;
+	int weight;
+	char sign;
+}Hfmnode, * Hfmtree;
+
+typedef char** Hfmcode;
+
+void main_control(void);	//主控函数
+
+void Initial_hfm(Hfmtree* HTptr, int* nptr);		//系统初始化
+int read_data(int** weiptr, char** sigptr);	//输入初始化数据
+void select(Hfmtree HT, int node, int* s1, int* s2);//在HT[1..i-1]中选择parent为0且weight最小的两个结点
+void read_file(Hfmtree HT, FILE* fp, int n);		//将初始化数据写入文件 "hfmTree.txt"
+
+void Encoding(Hfmtree* HTptr, Hfmcode* HCptr, int* nptr);//对文件 "ToBeTran.txt"中的正文编码并存入文件 "CodeFile.txt"中 
+int file_to_memory(Hfmtree* HTptr);	//将文件 "hfmTree.txt"中的所有数据存入内存 
+Hfmcode encode_in_HC(int n, Hfmtree HT);	//给每个字符编码
+void Decoding(Hfmtree HT, int n);	//将文件 "CodeFile.txt"中的代码进行译码并存入文件 "TextFile.txt"中
+
+void Print_code(void);//打印赫夫曼编码至显示屏并存入文件 "CodePrin.txt"中
+void Tree_print(Hfmtree* HTptr, int n);//打印赫夫曼树到显示屏 
+void print_tree(FILE* fp, Hfmtree HT, int number, int level);//按照先序遍历递归打印赫夫曼树 
+
+int main()
+{
+	main_control();
+	return 0;
+}
+void main_control(void)
+{
+	Hfmtree HT = NULL;	//存储赫夫曼树
+	Hfmcode HC = NULL;	//存储赫夫曼编码 
+	int i,n = 0;
+	char command = 'A';	//初始化命令
+	while(command!='Q')
+	{
+		printf("请输入你想要实现的功能：\n功能符号表：\n");
+		printf("I：初始化  E：编码  D：译码  P：打印代码文件  T：打印哈夫曼树  Q：退出运行\n");
+		if (command != 'A')
+			while ((getchar()) != '\n');
+		command=getchar();
+		switch (command)
+		{
+			case 'I':
+				Initial_hfm(&HT, &n);
+				break;
+			case 'E':
+				Encoding(&HT, &HC, &n);
+				break;
+			case 'D':
+				//译码前需先编码
+				Decoding(HT, n);
+				break;
+			case 'P':
+				Print_code();
+				break;
+			case 'T':
+				Tree_print(&HT,n);
+				break;
+			case 'Q':
+			default:
+				break;
+		}
+	}
+	//释放内存中的赫夫曼树和赫夫曼编码
+	free(HT);
+	free(HC);
+	printf("\n系统已关闭，欢迎您的下次使用！\n");
+}
+int file_to_memory(Hfmtree* HTptr)
+{
+	Hfmtree HT = NULL;
+	FILE* fp = NULL;
+	int i, wei, par, lch, rch, n = 0;
+	char sig;
+
+	fp = fopen("hfmTree.txt", "r");
+	if(fp!=NULL)
+	{
+		fscanf(fp, "n  =%4d", &n);	//读取字符集大小到n中
+		*HTptr = malloc((2 * n) * sizeof(Hfmnode));//第0号单元未使用
+		HT = *HTptr;
+		for (i = 1; i <= 2 * n - 1; i++) {
+			if (i == 1)
+				fseek(fp, 101, SEEK_SET);//i=1时将文件指针移动到文件中存储第1个结构体数据的位置
+			else
+				fseek(fp, 23, SEEK_CUR);//i>1时每次移动到文件中下一行的数据位置
+			fscanf(fp, "%c|%10d|%10d|%10d|%10d|", &sig, &wei, &par, &lch, &rch);
+			//将数据写入内存
+			HT[i].sign = sig;
+			HT[i].weight = wei;
+			HT[i].parent = par;
+			HT[i].lchild = lch;
+			HT[i].rchild = rch;
+		}
+		fclose(fp);
+	}
+	else printf("Cannot open file hfmTree.txt for reading!\n");
+	return n;
+}
+void Encoding(Hfmtree* HTptr, Hfmcode* HCptr, int* nptr)
+{
+	FILE* tbtran = NULL, * codefile = NULL;
+	Hfmcode HC = NULL;//存储赫夫曼编码
+	Hfmtree HT = NULL;//存储赫夫曼树
+	int i, n;
+	char ch;
+	
+	//若n=0则表明用户未使用'I'指令初始化数据 
+	if (*nptr == 0)
+		*nptr = file_to_memory(HTptr);
+	n = *nptr;
+	HT = *HTptr;
+	//给每个字符编码,结果存入HC
+	HC = encode_in_HC(n, HT);
+	if((tbtran=fopen("ToBeTran.txt","r"))!=NULL)
+	{
+		if((codefile=fopen("CodeFile.txt","w"))!=NULL)
+		{
+			while((ch=fgetc(tbtran))!=EOF)
+			{
+				i = 0;
+				//在HT中寻找字符ch
+				while (HT[++i].sign != ch && i <= n);
+				if(i<=n)
+					fprintf(codefile,"%s",HC[i]);//找到了便将该字符的编码打印到文件 "CodeFile.txt"
+				else{
+					fclose(tbtran);
+					fclose(codefile);
+					printf("存在不在字符集中的字符%c！请更新字符集或更改正文！\n",ch );
+					return;
+				}
+			}
+			fclose(codefile);
+		}
+		else printf("Cannot open file CodeFile.txt for writing!\n");
+		fclose(tbtran);
+	}
+	else printf("Cannot open file ToBeTran.txt for reading!");
+	printf("\n系统已完成编码！\n\n");
+}
+Hfmcode encode_in_HC(int n, Hfmtree HT)
+{
+	FILE* fp = NULL;
+	char* cd = NULL;//临时存储单个字符的编号
+	char** HC;//存储赫夫曼编码 
+	int i, num, par, start;
+	
+	HC = malloc((n + 1) * sizeof(char*));
+	cd = malloc(n * sizeof(char));			//分配求编码的工作空间 
+	cd[n - 1] = '\0';	//编码结束符 
+	for (i = 1; i <= n; i++)
+	{
+		start = n - 1;
+		//从叶子到根逆向求编码 
+		for (num = i, par = HT[i].parent; par != 0; num = par, par = HT[par].parent)
+		{
+			if (HT[par].lchild == num)
+				cd[--start] = '0';
+			else
+				cd[--start] = '1';
+			HC[i] = malloc((n - start) * sizeof(char));//为第i个字符编码分配空间 
+			strcpy(HC[i], &cd[start]);//将cd中start开始的编码复制到HC[i] 
+		}
+	}
+	free(cd);
+	//将每个字符的编码存入文件 "HfmCode.txt"中（用来检查编码结果的正确性）
+	if((fp=fopen("hfmCode.txt","w"))!=NULL)
+	{
+		fprintf(fp,"These are codes of all signs:\n");
+		for (i = 1; i <= n; i++) {
+			fprintf(fp, "%c%30s\n", HT[i].sign, HC[i]);
+		}
+		fclose(fp);
+	}
+	else
+		printf("Cannot open file hfmCode.txt for writing!\n");
+	return HC;
+}
+void Decoding(Hfmtree HT, int n)
+{
+	FILE* codef = NULL, * textf = NULL;
+	int num;
+	char code=0;
+	
+	if((codef=fopen("CodeFile.txt","r"))!=NULL)
+	{
+		if ((textf = fopen("TextFile.txt", "w")) != NULL)
+		{
+			while (code != EOF)
+			{
+				num = 2 * n - 1;
+				//译码出单个字符 
+				while (code != EOF && HT[num].lchild != 0 && HT[num].rchild != 0)
+				{
+					code = fgetc(codef);
+					if (code == '0')
+						num = HT[num].lchild;
+					else if (code == '1')
+						num = HT[num].rchild;
+				}
+				//将叶子结点内的字符打印到文件 "TextFile.txt"中 
+				if (HT[num].lchild == 0 && HT[num].rchild == 0) {
+					fprintf(textf, "%c", HT[num].sign);
+				}
+			}
+			fclose(textf);
+		}
+		else
+			printf("Cannot open file TextFile.txt for writing!\n");
+		fclose(codef);
+	}
+	else
+		printf("Cannot open file CodeFile.txt for reading!\n");
+	printf("\n系统已完成译码！\n\n");
+}
+void Initial_hfm(Hfmtree* HTptr, int* nptr)
+{
+	FILE* hft = NULL;
+	Hfmtree HT = NULL;
+	int i, n, s1, s2;	//声明定义字符集大小n
+	int hfmsize;		//声明定义哈夫曼树结点数
+	int* wei = NULL;
+	char* sig = NULL;
+	
+	*nptr = read_data(&wei, &sig);
+	n = *nptr;
+	//将输入的字符及其权值打印到结构体中
+	hfmsize = 2 * n - 1;
+	*HTptr = malloc((hfmsize + 1) * sizeof(Hfmnode));		//第0号单元未使用
+	HT = *HTptr;
+	//编号为1-n的结点为叶子结点
+	for (i = 1; i <= n; i++) {
+		HT[i].parent = 0;
+		HT[i].lchild = 0;
+		HT[i].rchild = 0;
+		HT[i].sign = sig[i - 1];
+		HT[i].weight = wei[i - 1];
+	}
+	for (; i <= hfmsize; i++) {
+		HT[i].parent = 0;
+		HT[i].lchild = 0;
+		HT[i].rchild = 0;
+		HT[i].sign = '\a';//非叶子节点符号位初始化为'\a' 
+		HT[i].weight = 0;
+	}
+	//建立赫夫曼树
+	for (i = n + 1; i <= hfmsize; i++) {
+		select(HT, i - 1, &s1, &s2);
+		HT[s1].parent = i;
+		HT[s2].parent = i;
+		HT[i].lchild = s1;
+		HT[i].rchild = s2;
+		HT[i].weight = HT[s1].weight + HT[s2].weight;
+	}
+	//释放用来暂存字符和权值的动态数组空间 
+	free(sig);
+	free(wei);
+	read_file(HT, hft, n);
+	printf("\n系统已完成初始化!\n\n");
+}
+//为了减少形参个数，将字符集大小设置为函数返回值
+int read_data(int** weiptr, char** sigptr)
+{
+	int i, n;
+	printf("请输入字符集大小：");
+	scanf("%d", &n);
+	while (getchar() != '\n');
+	printf("\n请依次输入%d对字符及其权值：\n\n",n);
+	*sigptr = malloc((n + 1) * sizeof(char));	//动态分配数组暂存n个字符
+	*weiptr = malloc((n + 1) * sizeof(int));		//动态分配数组暂存n个权值
+	//输入n组字符及其权值
+	for (i = 0; i < n; i++)
+	{
+		printf("请输入第%d组字符及其权值：\n",i+1);
+		scanf("%c%d", *sigptr + i, *weiptr + i);
+		while (getchar() != '\n');
+	}
+	return n;
+}
+void select(Hfmtree HT, int node, int* s1, int* s2)
+{
+	int i = 1, par = 0, wei = 0;
+	Hfmtree p = HT + 1, min1 = NULL, min2 = NULL;
+	while (p->parent != 0 && i <= node) {		//从序号 1..node 中找到第一个parent为0的结点 
+		p++; i++;
+	}
+	min1 = p; *s1 = i;
+	for (p++, i++; i <= node; i++, p++)
+	{
+		par = p->parent;
+		wei = p->weight;
+		if (par == 0) {
+			if (min2 == NULL) {
+				min2 = p; *s2 = i;
+			}
+			else{
+				//若par<min1->parent，则赋值给min1 
+				if (wei < min1->weight) {
+					min1 = p; *s1 = i;
+				}
+				//若在par>=min1->parent的情况下par<=min2->parent，则赋值给min2 
+				else{				
+					if (wei <= min2->weight) {
+						min2 = p; *s2 = i;
+					}
+				}
+			}
+		}
+	}
+}
+void read_file(Hfmtree HT, FILE* fp, int n)
+{
+	int i;
+	Hfmtree p = HT + 1;
+	if ((fp = fopen("hfmTree.txt", "w")) != NULL)
+	{
+		fprintf(fp, "n  = %4d\n", n);//打印字符集大小n
+		fprintf(fp, "|    number|      sign|    weight|    parent|    lchild|    rchild|\n");
+		for (i = 1; i <= 2 * n - 1; i++, p++) {
+			fprintf(fp, "|%10d|%10c|%10d|", i, p->sign, p->weight);
+			fprintf(fp, "%10d|%10d|%10d|\n", p->parent, p->lchild, p->rchild);
+		}
+		fclose(fp);
+	}
+	else
+		printf("Connot open file hfmTree.txt for writing!\n");
+}
+void Print_code(void)
+{
+	FILE* fp = NULL, * codep = NULL;
+	char ch;
+	int count = 0;
+	printf("\n编码如下：\n");
+	if ((fp = fopen("CodeFile.txt", "r") )!= NULL)
+	{
+		if ((codep = fopen("CodePrin.txt", "w")) != NULL)
+		{
+			while ((ch=fgetc(fp))!=EOF)//循环至读到文件尾 
+			{
+				printf("%c", ch);
+				fprintf(codep, "%c", ch);
+				count++;
+				//若打印了50个字符则打印换行符，count置0 
+				if (count == 50) {
+					printf("\n");
+					fprintf(codep, "\n");
+					count = 0;
+				}
+			}
+			fclose(codep);
+		}
+		else
+			printf("Cannot open file CodePrin.txt for writing!\n");
+		fclose(fp);
+	}
+	else
+		printf("Cannot open file CodeFile.txt for reading!\n");
+	printf("\n\n打印完毕！\n\n");
+}
+void Tree_print(Hfmtree* HTptr,int n)
+{
+	FILE* treep = NULL;
+	Hfmtree HT=NULL;
+	int number=0,level=0;
+	//若n=0则内存中无赫夫曼树，此时要将赫夫曼树存入内存 
+	if (n == 0)
+		n = file_to_memory(HTptr);
+	HT = *HTptr;
+	if ((treep = fopen("TreePrint.txt", "w")) != NULL)
+	{
+		number = 2 * n - 1;
+		printf("\n凹入式赫夫曼树如下：\n");
+		print_tree(treep, HT, number, level);//递归实现打印赫夫曼树 
+		fclose(treep);
+	}
+	else
+		printf("Cannot open file TreePrint.txt for writing!\n");
+	printf("\n赫夫曼树打印完成！\n\n");
+}
+void print_tree(FILE* fp, Hfmtree HT, int number, int level)
+{
+	int i; 
+	for (i = 1; i <= level; i++) {
+		printf("  ");
+		fprintf(fp, "  ");
+	}
+	printf("%d", number);
+	fprintf(fp, "%d", number);
+	int flag=0;	//若结点序号为个位数则flag=1（以字符集大小等于27为标准） 
+	if (number < 10) flag = 1;
+	for (i = 1; i <= 33 - 2 * level + flag; i++) {
+		printf("_");
+		fprintf(fp, "_");
+	}
+	printf("\n");
+	fprintf(fp, "\n");
+	//若结点存在左子树则打印左子树
+	if(HT[number].lchild!=0)
+		print_tree(fp, HT, HT[number].lchild, level + 1);
+	//若结点右子树存在则打印右子树
+	if(HT[number].rchild!=0)
+		print_tree(fp,HT, HT[number].rchild, level + 1);
+}
